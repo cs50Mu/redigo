@@ -1,80 +1,56 @@
 package main
 
 import (
-	"reflect"
+	"bytes"
+	"fmt"
 	"testing"
 )
 
-func TestEncodeCommandString(t *testing.T) {
-	commandStr := "keys *"
-	encodedStr := encodeCommandString(commandStr)
-	want := "*2\r\n$4\r\nkeys\r\n$1\r\n*\r\n"
-	if encodedStr != want {
-		t.Errorf("test failed, want: %s, got: %s", want, encodedStr)
+func TestWriteCommand(t *testing.T) {
+	tables := []struct {
+		input    []string
+		expected string
+	}{
+		{[]string{"keys", "*"}, "*2\r\n$4\r\nkeys\r\n$1\r\n*\r\n"},
+		{[]string{"foo", "bar"}, "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"},
+	}
+
+	for _, table := range tables {
+		var b bytes.Buffer
+		respWriter := NewRESPWriter(&b)
+		respWriter.WriteCommand(table.input...)
+		encoded := b.String()
+		if encoded != table.expected {
+			t.Errorf("test failed, expected: %s, got: %s", table.expected, encoded)
+		}
 	}
 }
 
-func TestDecodeSimpleStr(t *testing.T) {
-	str := "OK\r\n"
-	decoded, _ := decodeSimpleString([]byte(str), 0)
-	want := "OK"
-	if decoded != want {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
+func TestReadResp(t *testing.T) {
+	tables := []struct {
+		input    string
+		expected []byte
+	}{
+		{"+OK\r\n", []byte("OK")},
+		{"-Error message\r\n", []byte("Error message")},
+		{":1000\r\n", []byte("1000")},
+		{"$6\r\nfoobar\r\n", []byte("foobar")},
+		{"*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Foo\r\n-Bar\r\n", []byte("")},
+		{"*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n", []byte("")},
+		{"*0\r\n", []byte("")},
+		{"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n", []byte("")},
+		{"*3\r\n:1\r\n:2\r\n:3\r\n", []byte("")},
+		{"*-1\r\n", []byte("")},
 	}
-}
-
-func TestDecodeErrorString(t *testing.T) {
-	str := "ERR unknown command 'foobar'\r\n"
-	decoded, _ := decodeErrorString([]byte(str), 0)
-	want := "ERR unknown command 'foobar'"
-	if decoded != want {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
-	}
-}
-
-func TestDecodeBulkString(t *testing.T) {
-	str := "6\r\nfoobar\r\n"
-	decoded, _ := decodeBulkString([]byte(str), 0)
-	want := "foobar"
-	if decoded != want {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
-	}
-}
-
-func TestDecodeArrayString(t *testing.T) {
-	str := "2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
-	decoded, _ := decodeArrayString([]byte(str), 0)
-	want := []string{"foo", "bar"}
-	t.Log(decoded)
-	for i, v := range decoded {
-		t.Logf("%d: %s", i, v)
-	}
-	if !reflect.DeepEqual(want, decoded) {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
-	}
-
-	str = "5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n"
-	decoded, _ = decodeArrayString([]byte(str), 0)
-	want = []string{"1", "2", "3", "4", "foobar"}
-	if !reflect.DeepEqual(want, decoded) {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
-	}
-}
-
-func TestNullBulkString(t *testing.T) {
-	str := "-1\r\n"
-	decoded, _ := decodeBulkString([]byte(str), 0)
-	want := "nil"
-	if decoded != want {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
-	}
-}
-
-func TestNullElementInArray(t *testing.T) {
-	str := "3\r\n$3\r\nfoo\r\n$-1\r\n$3\r\nbar\r\n"
-	decoded, _ := decodeArrayString([]byte(str), 0)
-	want := []string{"foo", "nil", "bar"}
-	if !reflect.DeepEqual(want, decoded) {
-		t.Errorf("test failed, want: %s, got: %s", want, decoded)
+	for _, table := range tables {
+		str := table.input
+		b := bytes.NewBufferString(str)
+		respReader := NewRESPReader(b)
+		decoded := respReader.ReadResp()
+		fmt.Printf("decoded: %c\n", decoded)
+		//expected := table.expected
+		//		if decoded != expected {
+		//			t.Errorf("test failed, expected: %s, got: %s", table.expected, decoded)
+		//		}
 	}
 }

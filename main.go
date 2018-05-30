@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	//"flag"
 	"bufio"
 	"fmt"
@@ -26,7 +27,12 @@ func main() {
 		fmt.Printf("redis> ")
 		commandStr, _ := reader.ReadString('\n')
 		//commandStr := *commandPtr
-		fmt.Fprintf(conn, encodeCommandString(commandStr))
+		trimmed := strings.Trim(commandStr, " \n")
+		//fmt.Printf("trimmed: %s", trimmed)
+		commandSlice := strings.Split(trimmed, " ")
+		respWriter := NewRESPWriter(conn)
+		respWriter.WriteCommand(commandSlice...)
+		//fmt.Fprintf(conn, encodeCommandString(commandStr))
 
 		reply := make([]byte, 8192)
 
@@ -36,122 +42,125 @@ func main() {
 			os.Exit(1)
 		}
 
-		fmt.Println("reply from server: ", decodeResp(reply))
+		respReader := NewRESPReader(bytes.NewBuffer(reply))
+		fmt.Println("reply from server: ", string(respReader.ReadResp()))
 	}
 
 	conn.Close()
 }
 
-// translate command string into strings which the server can understand
-func encodeCommandString(commandString string) string {
-	trimmed := strings.Trim(commandString, " \n")
-	//fmt.Printf("trimmed: %s", trimmed)
-	commandSlice := strings.Split(trimmed, " ")
-	return makeArray(commandSlice)
+const (
+	arrayStrPrefix string = "*"
+	bulkStrPrefix  string = "$"
+	terminator     string = "\r\n"
+)
+
+// RESPWriter encodes command into
+type RESPWriter struct {
+	*bufio.Writer
 }
 
-func decodeResp(s []byte) string {
-	switch s[0] {
-	case '+':
-		resp, _ := decodeSimpleString(s[1:], 0)
-		return resp
-	case '-':
-		resp, _ := decodeErrorString(s[1:], 0)
-		return resp
-	case ':':
-		resp, _ := decodeIntString(s[1:], 0)
-		return resp
-	case '$':
-		resp, _ := decodeBulkString(s[1:], 0)
-		return resp
-	case '*':
-		resp, _ := decodeArrayString(s[1:], 0)
-		return fmt.Sprint(resp)
-	default:
-		return "not gonna happen"
+// NewRESPWriter returns a RESPWriter
+func NewRESPWriter(w io.Writer) *RESPWriter {
+	return &RESPWriter{
+		Writer: bufio.NewWriter(w),
 	}
 }
 
-// make array string
-func makeArray(strSlice []string) string {
-	sliceLen := len(strSlice)
-	// strings.Builder was just added on go 1.10(which was released on 2018-02-16)
-	//var b strings.Builder
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "*%d\r\n", sliceLen)
-	for _, str := range strSlice {
-		b.WriteString(makeBulkString(str))
+// WriteCommand write command to buffer
+func (w *RESPWriter) WriteCommand(commands ...string) error {
+	commandLen := len(commands)
+	w.WriteString(arrayStrPrefix)
+	w.WriteString(strconv.Itoa(commandLen))
+	w.WriteString(terminator)
+
+	for _, c := range commands {
+		w.writeBulkString(c)
 	}
-	return b.String()
+	return w.Flush()
 }
 
-// make bulk string
-func makeBulkString(str string) string {
+func (w *RESPWriter) writeBulkString(str string) {
 	strLen := len(str)
-	//var b strings.Builder
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "$%d\r\n%s\r\n", strLen, str)
-	return b.String()
+	w.WriteString(bulkStrPrefix)
+	w.WriteString(strconv.Itoa(strLen))
+	w.WriteString(terminator)
+	w.WriteString(str)
+	w.WriteString(terminator)
 }
 
-func decodeSimpleString(s []byte, index int) (string, int) {
+// RESPReader decodes command
+// from redis server
+type RESPReader struct {
+	*bufio.Reader
+}
+
+// NewRESPReader returns a RESPReader
+func NewRESPReader(r io.Reader) *RESPReader {
+	return &RESPReader{
+		Reader: bufio.NewReader(r),
+	}
+}
+
+// ReadResp read resp
+func (r *RESPReader) ReadResp() []byte {
+	prefix, _ := r.ReadByte()
+	switch prefix {
+	case '+', '-', ':':
+		return r.readSimpleStr()
+	case '$':
+		//		var b bytes.Buffer
+		return r.readBulkStr()
+	case '*':
+		return r.readArrayStr()
+	default:
+		return []byte{}
+	}
+}
+
+func (r *RESPReader) readSimpleStr() []byte {
 	var b bytes.Buffer
 	var c byte
-	var i int
-	for i = index; ; i++ {
-		c = s[i]
+	for {
+		c, _ = r.ReadByte()
 		if c != '\r' {
 			b.WriteByte(c)
 		} else {
 			break
 		}
 	}
-	return b.String(), i + 2
+	// consume '\n'
+	r.ReadByte()
+	return b.Bytes()
 }
 
-func decodeErrorString(s []byte, index int) (string, int) {
-	return decodeSimpleString(s, index)
-}
-
-func decodeIntString(s []byte, index int) (string, int) {
-	return decodeSimpleString(s, index)
-}
-
-func decodeBulkString(s []byte, index int) (string, int) {
+func (r *RESPReader) readBulkStr() []byte {
 	var b bytes.Buffer
-	var i int
-	lenStr, strIndex := decodeSimpleString(s, index)
+	lenStr := string(r.readSimpleStr())
 	strLen, _ := strconv.Atoi(lenStr)
 	if strLen == -1 {
-		return "nil", strIndex
+		return []byte("nil")
 	}
-	for i = strIndex; i < strLen+strIndex; i++ {
-		b.WriteByte(s[i])
+	for i := strLen; i > 0; i-- {
+		c, _ := r.ReadByte()
+		b.WriteByte(c)
 	}
-	return b.String(), i + 2
+	// consume '\r\n'
+	r.ReadByte()
+	r.ReadByte()
+	return b.Bytes()
 }
 
-func decodeArrayString(s []byte, index int) ([]string, int) {
-	var result []string
-	lenStr, strIndex := decodeSimpleString(s, index)
-	arrayLen, _ := strconv.Atoi(lenStr)
-	if arrayLen == -1 {
-		return []string{"nil"}, strIndex
+func (r *RESPReader) readArrayStr() []byte {
+	s := make([]byte, 0)
+	lenStr := string(r.readSimpleStr())
+	strLen, _ := strconv.Atoi(lenStr)
+	if strLen == -1 {
+		return []byte("nil")
 	}
-	var arrayElement string
-	for i := 0; i < arrayLen; i++ {
-		mark := s[strIndex]
-		switch mark {
-		case '+':
-			arrayElement, strIndex = decodeSimpleString(s, strIndex+1)
-		case '-':
-			arrayElement, strIndex = decodeErrorString(s, strIndex+1)
-		case ':':
-			arrayElement, strIndex = decodeIntString(s, strIndex+1)
-		case '$':
-			arrayElement, strIndex = decodeBulkString(s, strIndex+1)
-		}
-		result = append(result, arrayElement)
+	for i := strLen; i > 0; i-- {
+		res := r.ReadResp()
+		s = append(s, res...)
 	}
-	return result, strIndex
+	return s
 }
