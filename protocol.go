@@ -138,7 +138,7 @@ func (r *RESPReader) readArrayStr() (*Reply, error) {
 	s := make([]*Reply, 0)
 	lenStr := string(r.readLine())
 	strLen, _ := strconv.Atoi(lenStr)
-	if strLen == 0 {
+	if strLen == -1 {
 		return &Reply{arrayVal: nil}, nil
 	}
 	for i := strLen; i > 0; i-- {

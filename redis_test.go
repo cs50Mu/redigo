@@ -13,7 +13,6 @@ func TestWriteCommand(t *testing.T) {
 	}{
 		{[]string{"keys", "*"}, "*2\r\n$4\r\nkeys\r\n$1\r\n*\r\n"},
 		{[]string{"foo", "bar"}, "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"},
-		//{[]string{"expire", "x", "20"}, ""},
 	}
 
 	for _, table := range tables {
@@ -27,34 +26,82 @@ func TestWriteCommand(t *testing.T) {
 	}
 }
 
-//func TestReadResp(t *testing.T) {
-//	tables := []struct {
-//		input    string
-//		expected []byte
-//	}{
-//		{"+OK\r\n", []byte("OK")},
-//		{"-Error message\r\n", []byte("Error message")},
-//		{":1000\r\n", []byte("1000")},
-//		{"$6\r\nfoobar\r\n", []byte("foobar")},
-//		{"*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Foo\r\n-Bar\r\n", []byte("")},
-//		{"*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$6\r\nfoobar\r\n", []byte("")},
-//		{"*0\r\n", []byte("")},
-//		{"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n", []byte("")},
-//		{"*3\r\n:1\r\n:2\r\n:3\r\n", []byte("")},
-//		{"*-1\r\n", []byte("")},
-//	}
-//	for _, table := range tables {
-//		str := table.input
-//		b := bytes.NewBufferString(str)
-//		respReader := NewRESPReader(b)
-//		decoded := respReader.ReadResp()
-//		fmt.Printf("decoded: %c\n", decoded)
-//		//expected := table.expected
-//		//		if decoded != expected {
-//		//			t.Errorf("test failed, expected: %s, got: %s", table.expected, decoded)
-//		//		}
-//	}
-//}
+func TestReadResp(t *testing.T) {
+	// simple str
+	b := bytes.NewBufferString("+OK\r\n")
+	respReader := NewRESPReader(b)
+	reply, _ := respReader.ReadResp()
+	expected := "OK"
+	if string(reply.stringVal) != expected {
+		t.Errorf("test failed, expected: %s, got: %s", expected, string(reply.stringVal))
+	}
+
+	// error str
+	b = bytes.NewBufferString("-Error message\r\n")
+	respReader = NewRESPReader(b)
+	reply, err := respReader.ReadResp()
+	expected = "Error message"
+	if err.Error() != expected {
+		t.Errorf("test failed, expected: %s, got: %s", expected, err.Error())
+	}
+
+	// integer str
+	b = bytes.NewBufferString(":1000\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	var intExpected = int64(1000)
+	if reply.integerVal != intExpected {
+		t.Errorf("test failed, expected: %d, got: %d", intExpected, reply.integerVal)
+	}
+
+	// bulk str
+	b = bytes.NewBufferString("$6\r\nfoobar\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	expected = "foobar"
+	if string(reply.stringVal) != expected {
+		t.Errorf("test failed, expected: %s, got: %s", expected, string(reply.stringVal))
+	}
+
+	// array str
+	b = bytes.NewBufferString("*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	arrayReply := reply.arrayVal
+	if string(arrayReply[0].stringVal) != "foo" && string(arrayReply[1].stringVal) != "bar" {
+		t.Errorf("test failed, expected: [foo, bar], got: [%s, %s]", arrayReply[0].stringVal, arrayReply[1].stringVal)
+	}
+
+	// empty str
+	b = bytes.NewBufferString("$0\r\n\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	expected = ""
+	if string(reply.stringVal) != expected {
+		t.Errorf("test failed, expected: %s, got: %s", expected, string(reply.stringVal))
+	}
+	// emtpy array
+	b = bytes.NewBufferString("*0\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	if len(reply.arrayVal) != 0 {
+		t.Errorf("test failed, expected: empty array, got: %d element in array", len(reply.arrayVal))
+	}
+	// nil object as bulk str
+	b = bytes.NewBufferString("$-1\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	if reply.stringVal != nil {
+		t.Errorf("test failed, expected: nil, got: %s", string(reply.stringVal))
+	}
+	// nil object as array str
+	b = bytes.NewBufferString("*-1\r\n")
+	respReader = NewRESPReader(b)
+	reply, err = respReader.ReadResp()
+	if reply.arrayVal != nil {
+		t.Errorf("test failed, expected: nil")
+	}
+}
 
 func TestGet(t *testing.T) {
 	client, _ := NewRedisClient("127.0.0.1", "6379")
@@ -104,8 +151,8 @@ func TestKeys(t *testing.T) {
 	fmt.Println(res)
 	client.Select(1)
 	res, _ = client.Keys("*")
-	if res != nil {
-		t.Errorf("test failed, expected: nil, got: %s", res)
+	if len(res) != 0 {
+		t.Errorf("test failed, expected: empty array, got: %s", res)
 	}
 }
 
