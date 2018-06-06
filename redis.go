@@ -3,39 +3,35 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net"
 	"strconv"
 )
 
-// RedisClient represent a
-// redis client conn
+// RedisClient represent a redis client conn
 type RedisClient struct {
-	//	host string
-	//	port string
-	conn net.Conn
+	pool *ConnPool
 }
 
-// NewRedisClient returns a new
-// Redis client
+// NewRedisClient returns a new Redis client
 func NewRedisClient(host, port string) (*RedisClient, error) {
-	address := fmt.Sprintf("%s:%s", host, port)
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return nil, err
-	}
+	pool := NewConnPool(host, port, 10)
 	return &RedisClient{
-		conn: conn,
+		pool: pool,
 	}, nil
 }
 
 func (rc *RedisClient) executeCommand(command string, args ...string) (*Reply, error) {
-	respWriter := NewRESPWriter(rc.conn)
-	commands := append([]string{command}, args...)
-	err := respWriter.WriteCommand(commands...)
+	conn, err := rc.pool.GetConn()
 	if err != nil {
 		return nil, err
 	}
-	respReader := NewRESPReader(rc.conn)
+	defer rc.pool.ReleaseConn(conn)
+	respWriter := NewRESPWriter(conn)
+	commands := append([]string{command}, args...)
+	err = respWriter.WriteCommand(commands...)
+	if err != nil {
+		return nil, err
+	}
+	respReader := NewRESPReader(conn)
 	reply, err := respReader.ReadResp()
 	if err != nil {
 		return nil, err
