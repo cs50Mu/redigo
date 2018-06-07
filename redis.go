@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 )
 
@@ -13,25 +14,25 @@ type RedisClient struct {
 
 // NewRedisClient returns a new Redis client
 func NewRedisClient(host, port string) (*RedisClient, error) {
-	pool := NewConnPool(host, port, 10)
+	pool := NewConnPool(host, port, 10*runtime.NumCPU())
 	return &RedisClient{
 		pool: pool,
 	}, nil
 }
 
 func (rc *RedisClient) executeCommand(command string, args ...string) (*Reply, error) {
-	conn, err := rc.pool.GetConn()
+	c, err := rc.pool.GetConn()
 	if err != nil {
 		return nil, err
 	}
-	defer rc.pool.ReleaseConn(conn)
-	respWriter := NewRESPWriter(conn)
+	defer rc.pool.ReleaseConn(c)
+	respWriter := NewRESPWriter(c.conn)
 	commands := append([]string{command}, args...)
 	err = respWriter.WriteCommand(commands...)
 	if err != nil {
 		return nil, err
 	}
-	respReader := NewRESPReader(conn)
+	respReader := NewRESPReader(c.conn)
 	reply, err := respReader.ReadResp()
 	if err != nil {
 		return nil, err
