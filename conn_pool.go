@@ -12,6 +12,8 @@ import (
 type Conn struct {
 	createTime time.Time
 	conn       net.Conn
+	respReader *RESPReader
+	respWriter *RESPWriter
 }
 
 func (c *Conn) isStale(connLifeTime time.Duration) bool {
@@ -20,6 +22,33 @@ func (c *Conn) isStale(connLifeTime time.Duration) bool {
 		return true
 	}
 	return false
+}
+
+// SendCommand send one command to redis server
+func (c *Conn) SendCommand(cmdStr ...string) error {
+	err := c.respWriter.WriteCommand(cmdStr...)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReadResp read server response from connection
+func (c *Conn) ReadResp() (*Reply, error) {
+	reply, err := c.respReader.ReadResp()
+	if err != nil {
+		return nil, err
+	}
+	return reply, nil
+}
+
+// SendBulkCommand send bulk command to redis server
+func (c *Conn) SendBulkCommand(bulkCmd [][]string) error {
+	err := c.respWriter.WriteBulkCommand(bulkCmd)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Conn) close() {
@@ -123,7 +152,11 @@ func (cp *ConnPool) connect() (Conn, error) {
 	if err != nil {
 		return Conn{}, err
 	}
-	return Conn{createTime: time.Now(), conn: conn}, nil
+	return Conn{
+		createTime: time.Now(),
+		conn:       conn,
+		respReader: NewRESPReader(conn),
+		respWriter: NewRESPWriter(conn)}, nil
 }
 
 // ReleaseConn put a connection back into pool

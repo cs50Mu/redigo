@@ -194,3 +194,22 @@ func TestScan(t *testing.T) {
 	nextCursor, keys, _ = client.Scan(nextCursor, "", 3)
 	fmt.Printf("keys: %s\n", keys)
 }
+
+func TestPipeline(t *testing.T) {
+	fmt.Printf("testing pipeline\n")
+	client, _ := NewRedisClient("127.0.0.1", "6379")
+	pipeline, _ := client.Pipeline()
+	pipeline.AddCommand("set", "x", "1")
+	pipeline.AddCommand("incr", "x")
+	pipeline.AddCommand("get", "x")
+	pipeline.AddCommand("info")
+	r, err := pipeline.Exec()
+	if err != nil {
+		fmt.Printf("got error while exec: %s\n", err)
+	}
+	fmt.Printf("reply from set: %s\n", r[0].stringVal)
+	fmt.Printf("reply from incr: %d\n", r[1].integerVal)
+	fmt.Printf("reply from get: %s\n", r[2].stringVal)
+	fmt.Printf("reply from info: %s\n", r[3].stringVal)
+	pipeline.Close()
+}

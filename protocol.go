@@ -38,15 +38,27 @@ func NewRESPWriter(w io.Writer) *RESPWriter {
 	}
 }
 
-// WriteCommand write command to buffer
-func (w *RESPWriter) WriteCommand(commands ...string) error {
-	commandLen := len(commands)
+func (w *RESPWriter) bufferCommand(args ...string) {
+	argsLen := len(args)
 	w.WriteByte(arrayStrPrefix)
-	w.WriteString(strconv.Itoa(commandLen))
+	w.WriteString(strconv.Itoa(argsLen))
 	w.WriteString(terminator)
 
-	for _, c := range commands {
+	for _, c := range args {
 		w.writeBulkString(c)
+	}
+}
+
+// WriteCommand write command to underlying conn
+func (w *RESPWriter) WriteCommand(args ...string) error {
+	w.bufferCommand(args...)
+	return w.Flush()
+}
+
+// WriteBulkCommand write many commands at one time
+func (w *RESPWriter) WriteBulkCommand(bulkCmd [][]string) error {
+	for _, cmd := range bulkCmd {
+		w.bufferCommand(cmd...)
 	}
 	return w.Flush()
 }

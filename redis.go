@@ -26,14 +26,12 @@ func (rc *RedisClient) executeCommand(command string, args ...string) (*Reply, e
 		return nil, err
 	}
 	defer rc.pool.ReleaseConn(c)
-	respWriter := NewRESPWriter(c.conn)
 	commands := append([]string{command}, args...)
-	err = respWriter.WriteCommand(commands...)
+	err = c.SendCommand(commands...)
 	if err != nil {
 		return nil, err
 	}
-	respReader := NewRESPReader(c.conn)
-	reply, err := respReader.ReadResp()
+	reply, err := c.ReadResp()
 	if err != nil {
 		return nil, err
 	}
@@ -206,4 +204,17 @@ func (rc *RedisClient) Del(keys ...string) (int64, error) {
 		return 0, err
 	}
 	return reply.integerVal, nil
+}
+
+// Pipeline returns a redis pipeline
+func (rc *RedisClient) Pipeline() (*Pipeline, error) {
+	c, err := rc.pool.GetConn()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.pool.ReleaseConn(c)
+	return &Pipeline{
+		conn: c,
+		pool: rc.pool,
+	}, nil
 }
