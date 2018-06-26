@@ -213,3 +213,45 @@ func TestPipeline(t *testing.T) {
 	fmt.Printf("reply from info: %s\n", r[3].stringVal)
 	pipeline.Close()
 }
+
+func TestTransaction(t *testing.T) {
+	fmt.Printf("testing transaction\n")
+	client, _ := NewRedisClient("127.0.0.1", "6379")
+	tx, _ := client.Transaction()
+	tx.Watch("x")
+	tx.AddCommand("set", "x", "1")
+	tx.AddCommand("incr", "x")
+	tx.AddCommand("get", "x")
+	r, err := tx.Exec()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("reply from set: %s\n", r[0].stringVal)
+	fmt.Printf("reply from incr: %d\n", r[1].integerVal)
+	fmt.Printf("reply from get: %s\n", r[2].stringVal)
+	tx.Close()
+}
+
+func TestPubSub(t *testing.T) {
+	fmt.Printf("\ntesting pubsub\n")
+	client2, _ := NewRedisClient("127.0.0.1", "6379")
+	ps2, _ := client2.PubSub()
+	ps2.Subscribe("test_channel")
+	client3, _ := NewRedisClient("127.0.0.1", "6379")
+	ps3, _ := client3.PubSub()
+	ps3.Publish("test_channel", "hello")
+	ps2.Unsubscribe("test_channel")
+	for i := 0; i < 3; i++ {
+		message, _ := ps2.Receive()
+		fmt.Printf("message: %s\n", message)
+	}
+	ps3.Close()
+	ps2.Close()
+}
+
+func TestScripting(t *testing.T) {
+	fmt.Printf("testing scripting\n")
+	client, _ := NewRedisClient("127.0.0.1", "6379")
+	res, _ := client.ScriptLoad(`return redis.call('get','foo')`)
+	fmt.Printf("reply from script load: %s\n", res)
+}

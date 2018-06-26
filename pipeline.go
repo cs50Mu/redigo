@@ -16,6 +16,7 @@ func (p *Pipeline) AddCommand(command string, args ...string) {
 }
 
 // Exec a redis pipeline
+// returns results of queued commands
 func (p *Pipeline) Exec() ([]*Reply, error) {
 	err := p.conn.SendBulkCommand(p.cmdBuffer)
 	if err != nil {

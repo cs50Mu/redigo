@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// RedisClient represent a redis client conn
+// RedisClient represent a redis client
 type RedisClient struct {
 	pool *ConnPool
 }
@@ -31,11 +31,7 @@ func (rc *RedisClient) executeCommand(command string, args ...string) (*Reply, e
 	if err != nil {
 		return nil, err
 	}
-	reply, err := c.ReadResp()
-	if err != nil {
-		return nil, err
-	}
-	return reply, nil
+	return c.ReadResp()
 }
 
 // Get the value of key. If the key does not exist the special value nil is returned.
@@ -212,9 +208,42 @@ func (rc *RedisClient) Pipeline() (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.pool.ReleaseConn(c)
 	return &Pipeline{
 		conn: c,
 		pool: rc.pool,
 	}, nil
+}
+
+// Transaction returns a new transaction
+func (rc *RedisClient) Transaction() (*Transaction, error) {
+	c, err := rc.pool.GetConn()
+	if err != nil {
+		return nil, err
+	}
+	return &Transaction{
+		conn: c,
+		pool: rc.pool,
+	}, nil
+}
+
+// PubSub returns a pubsub obj
+func (rc *RedisClient) PubSub() (*PubSub, error) {
+	c, err := rc.pool.GetConn()
+	if err != nil {
+		return nil, err
+	}
+	return &PubSub{
+		conn: c,
+		pool: rc.pool,
+	}, nil
+}
+
+// ScriptLoad load a script into the scripts cache, without executing it
+// returns the SHA1 digest of the script added into the script cache
+func (rc *RedisClient) ScriptLoad(script string) (string, error) {
+	reply, err := rc.executeCommand("SCRIPT", "LOAD", script)
+	if err != nil {
+		return "", err
+	}
+	return string(reply.stringVal), nil
 }
